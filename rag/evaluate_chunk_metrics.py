@@ -70,8 +70,14 @@ def evaluate():
                 if reciprocal_rank == 0:
                     reciprocal_rank = 1 / rank
 
-        precision = relevant_count / k
-        recall = len(matched_keywords) / len(relevant_keywords)
+        precision = (
+            relevant_count / len(results)
+            if results else 0
+        )
+        recall = (
+            len(matched_keywords) / len(relevant_keywords)
+            if relevant_keywords else 0
+        )
 
         total_precision += precision
         total_recall += recall

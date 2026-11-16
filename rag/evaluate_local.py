@@ -1,13 +1,12 @@
 
-from rag.retriever import retrieve_agriculture_knowledge
+from rag.retriever import retrieve_multiple_agriculture_knowledge
 
 
 TEST_CASES = {
     "Soil fertility": {
         "question": "How can farmers improve soil fertility?",
         "keywords": ["soil", "fertility"],
-},
-   
+    },
     "Pest management": {
         "question": "How can farmers manage crop pests and diseases?",
         "keywords": ["pest", "disease", "biological", "management"],
@@ -33,13 +32,23 @@ def evaluate():
     print("\nLOCAL RAG EVALUATION")
     print("=" * 55)
 
-    for topic, test in TEST_CASES.items():
+    topics = list(TEST_CASES.keys())
+    questions = [
+        TEST_CASES[topic]["question"]
+        for topic in topics
+    ]
 
-        results = retrieve_agriculture_knowledge(
-            test["question"],
-            top_k=5,
-        )
+    # Embed all five questions in one request.
+    all_results = retrieve_multiple_agriculture_knowledge(
+        questions,
+        top_k=5,
+    )
 
+    for topic, batch_result in zip(topics, all_results):
+        test = TEST_CASES[topic]
+
+        # Extract the actual retrieved passages.
+        results = batch_result.get("results", [])
         combined_text = " ".join(
             result["content"] for result in results
         ).lower()
@@ -62,10 +71,8 @@ def evaluate():
 
         if results:
             print("Top retrieved source:", results[0]["source"])
-            for i, result in enumerate(results, start=1):
-                print(f"\nRetrieved chunk {i}:")
-                print(result["content"][:500])
-                average = total_score / len(TEST_CASES)
+
+    average = total_score / len(TEST_CASES)
 
     print("\n" + "=" * 55)
     print(f"Average keyword coverage: {average:.2f}%")

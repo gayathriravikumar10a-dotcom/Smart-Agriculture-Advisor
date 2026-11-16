@@ -162,6 +162,64 @@ if submitted:
             st.error(f"Request failed: {error}")
 
 
+# RAG Agricultural Knowledge Assistant
+st.divider()
+st.header("📚 Agricultural Knowledge Assistant")
+st.write(
+    "Ask agricultural questions and receive answers "
+    "based on the reference PDF documents."
+)
+
+rag_question = st.text_area(
+    "Enter your agricultural question",
+    placeholder="Example: How can farmers improve soil fertility?",
+    key="rag_question",
+)
+
+if st.button("🔍 Get Agricultural Answer", use_container_width=True):
+    if not rag_question.strip():
+        st.warning("Please enter a question.")
+    else:
+        try:
+            with st.spinner(
+                "Searching agricultural knowledge and generating an answer..."
+            ):
+                rag_response = requests.post(
+                    "http://127.0.0.1:8000/ask-agriculture",
+                    json={"question": rag_question.strip()},
+                    timeout=180,
+                )
+
+            if rag_response.status_code == 200:
+                rag_result = rag_response.json()
+                answer = rag_result.get("answer")
+                if answer:
+                    st.success("Answer generated!")
+                    st.write(answer)
+                else:
+                    st.error("The backend returned no answer.")
+            else:
+                st.error(
+                    f"Backend error: HTTP {rag_response.status_code}"
+                )
+                st.code(rag_response.text)
+
+        except requests.exceptions.ConnectionError:
+            st.error(
+                "Cannot connect to FastAPI. "
+                "Please make sure the backend server is running."
+            )
+
+        except requests.exceptions.Timeout:
+            st.error(
+                "The request took too long. "
+                "Please check the backend terminal."
+            )
+
+        except requests.exceptions.RequestException as error:
+            st.error(f"Request failed: {error}")
+
+
 st.divider()
 
 st.caption(

@@ -42,7 +42,7 @@ def analyze_pest_disease(
 
     try:
         results = retrieve_agriculture_knowledge(
-            question=question,
+            query=question,
             top_k=3,
         )
     except Exception:

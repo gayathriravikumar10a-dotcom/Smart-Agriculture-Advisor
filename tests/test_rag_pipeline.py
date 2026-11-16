@@ -1,7 +1,12 @@
 
+import sqlite3
 from unittest.mock import patch
 
-from rag.rag_pipeline import generate_rag_answer
+from rag.rag_pipeline import (
+    generate_rag_answer,
+    get_cached_answer,
+    save_cached_answer,
+)
 
 
 def test_empty_question_is_rejected():
@@ -48,3 +53,42 @@ def test_retrieved_context_is_sent_to_gemini():
     assert "save_and_grow.pdf" in prompt
     assert "available nutrients" in prompt
     assert "How can I improve soil fertility?" in prompt
+
+
+def test_get_cached_answer_returns_a_valid_answer():
+    connection = sqlite3.connect(":memory:")
+    try:
+        with patch("rag.rag_pipeline.sqlite3.connect", return_value=connection):
+            save_cached_answer(" Soil health? ", "Use cover crops.")
+
+            assert get_cached_answer("SOIL HEALTH?") == "Use cover crops."
+    finally:
+        connection.close()
+
+
+def test_get_cached_answer_deletes_invalid_answers():
+    invalid_answers = [
+        "",
+        "The AI could not complete your request.",
+        "Quota is exhausted.",
+        "Temporarily unavailable.",
+        "Analysis failed.",
+    ]
+
+    for answer in invalid_answers:
+        connection = sqlite3.connect(":memory:")
+        try:
+            with patch(
+                "rag.rag_pipeline.sqlite3.connect",
+                return_value=connection,
+            ):
+                save_cached_answer("soil health", answer)
+
+                assert get_cached_answer("soil health") is None
+                cached_rows = connection.execute(
+                    "SELECT COUNT(*) FROM answer_cache"
+                ).fetchone()[0]
+
+                assert cached_rows == 0
+        finally:
+            connection.close()

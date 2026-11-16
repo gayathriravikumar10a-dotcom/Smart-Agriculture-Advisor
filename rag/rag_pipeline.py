@@ -1,6 +1,72 @@
 
+import sqlite3
+from pathlib import Path
+
 from rag.retriever import retrieve_agriculture_knowledge
 from agents.crop_recommendation_agent import generate_gemini_response
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CACHE_DB = PROJECT_ROOT / "rag" / "answer_cache.sqlite3"
+
+
+def get_cached_answer(question: str):
+    """Return a previously generated valid answer, if available."""
+
+    with sqlite3.connect(CACHE_DB) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS answer_cache (
+                question TEXT PRIMARY KEY,
+                answer TEXT NOT NULL
+            )
+            """
+        )
+
+        row = connection.execute(
+            "SELECT answer FROM answer_cache WHERE question = ?",
+            (question.strip().casefold(),),
+        ).fetchone()
+
+        if row:
+            answer = row[0]
+            if (
+                not answer.strip()
+                or "could not complete your request" in answer.lower()
+                or "quota is exhausted" in answer.lower()
+                or "temporarily unavailable" in answer.lower()
+                or "analysis failed" in answer.lower()
+            ):
+                connection.execute(
+                    "DELETE FROM answer_cache WHERE question = ?",
+                    (question.strip().casefold(),),
+                )
+                return None
+            return answer
+
+    return None
+
+
+def save_cached_answer(question: str, answer: str):
+    """Save a successful answer for future use."""
+
+    with sqlite3.connect(CACHE_DB) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS answer_cache (
+                question TEXT PRIMARY KEY,
+                answer TEXT NOT NULL
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO answer_cache (question, answer)
+            VALUES (?, ?)
+            """,
+            (question.strip().casefold(), answer),
+        )
 
 
 def generate_rag_answer(question: str) -> str:
@@ -9,8 +75,14 @@ def generate_rag_answer(question: str) -> str:
     if not isinstance(question, str) or not question.strip():
         return "Invalid input: Question cannot be empty."
 
+    cached_answer = get_cached_answer(question)
+
+    if cached_answer:
+        print("Returning cached answer...")
+        return cached_answer
+
     results = retrieve_agriculture_knowledge(
-        question=question,
+        query=question,
         top_k=3,
     )
 
@@ -51,7 +123,22 @@ FARMER'S QUESTION:
 Provide the answer:
 """
 
-    return generate_gemini_response(prompt)
+    answer = generate_gemini_response(prompt)
+
+    # Do not cache quota errors or failed responses.
+    failure_terms = (
+        "analysis failed",
+        "quota is exhausted",
+        "temporarily unavailable",
+        "rate-limited",
+    )
+
+    if answer and not any(
+        term in answer.casefold() for term in failure_terms
+    ):
+        save_cached_answer(question, answer)
+
+    return answer
 
 
 if __name__ == "__main__":

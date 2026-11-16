@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from agents.agriculture_workflow import build_agriculture_workflow
+from rag.rag_pipeline import generate_rag_answer
 
 
 app = FastAPI(
@@ -24,6 +25,10 @@ class FarmRequest(BaseModel):
     symptoms: str = "No symptoms provided"
     growth_stage: str = "Unknown"
     weather_information: str = "Not provided"
+
+
+class RAGQuestionRequest(BaseModel):
+    question: str = Field(min_length=1)
 
 
 # Build the five-agent workflow
@@ -75,4 +80,14 @@ def analyze_farm(farm: FarmRequest):
         ),
 
         "farm_plan": result.get("farm_plan"),
+    }
+
+
+@app.post("/ask-agriculture")
+def ask_agriculture(request: RAGQuestionRequest):
+    answer = generate_rag_answer(request.question)
+    return {
+        "question": request.question,
+        "answer": answer,
+        "status": "success",
     }

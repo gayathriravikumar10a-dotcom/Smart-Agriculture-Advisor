@@ -53,7 +53,10 @@ def evaluate():
             if source in relevant_sources
         )
 
-        precision = relevant_found / k
+        precision = (
+            relevant_found / len(retrieved_sources)
+            if retrieved_sources else 0
+        )
 
         recall = (
             relevant_found / len(relevant_sources)
