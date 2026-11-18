@@ -1,10 +1,19 @@
 
-from agents.crop_recommendation_agent import (
-    client,
-    generate_gemini_response,
-)
-
+from agents.crop_recommendation_agent import generate_gemini_response
 from rag.retriever import retrieve_agriculture_knowledge
+
+
+def shorten_report(report: str, max_chars: int = 1800) -> str:
+    """Limit report size before combining agent outputs."""
+    if not isinstance(report, str):
+        return "Report unavailable."
+
+    report = report.strip()
+
+    if len(report) > max_chars:
+        return report[:max_chars] + "\n[Report shortened]"
+
+    return report
 
 
 def create_farm_plan(
@@ -15,9 +24,8 @@ def create_farm_plan(
     pest_disease_report: str,
     weather_irrigation_report: str,
 ) -> str:
-    """Combine five-agent outputs and agricultural references into a farm plan."""
+    """Combine agent outputs into a practical farm plan."""
 
-    # Validate inputs
     if not isinstance(location, str) or not location.strip():
         return "Invalid input: Location cannot be empty."
 
@@ -31,125 +39,108 @@ def create_farm_plan(
         "Weather and irrigation": weather_irrigation_report,
     }
 
-    for report_name, report in reports.items():
+    for name, report in reports.items():
         if not isinstance(report, str) or not report.strip():
-            return f"Invalid input: {report_name} report is missing."
+            return f"Invalid input: {name} report is missing."
 
-    # Retrieve agricultural knowledge
+    # Retrieve only two relevant reference chunks.
     question = (
-        f"Farm planning, crop management, soil health, pest prevention, "
-        f"irrigation, and agricultural risk management for {intended_crop} "
-        f"in {location}."
+        f"Practical farm management, soil health, pest prevention "
+        f"and irrigation for {intended_crop} in {location}."
     )
 
     try:
         results = retrieve_agriculture_knowledge(
             query=question,
-            top_k=3,
+            top_k=2,
         )
-    except Exception:
+    except Exception as error:
+        print(f"Farm planning retrieval warning: {error}")
         results = []
 
-    # Prepare reference context
     context_parts = []
 
     for index, result in enumerate(results, start=1):
-        context_parts.append(
-            f"Source {index}: {result['source']}\n"
-            f"Content: {result['content']}"
-        )
+        source = str(result.get("source", "Agricultural reference"))
+        content = str(result.get("content", ""))[:1000]
+
+        if content:
+            context_parts.append(
+                f"Source {index}: {source}\n{content}"
+            )
 
     agricultural_context = (
         "\n\n".join(context_parts)
         if context_parts
-        else "No additional agricultural reference documents were retrieved."
+        else "No additional references retrieved."
     )
 
-    # Prepare prompt
+    # Keep the combined prompt within a smaller size.
     prompt = f"""
-You are the Farm Planning and Risk Management Agent in a
-Smart Agriculture Advisor.
+You are an expert agricultural farm planning advisor
+for Indian farmers.
 
-FARM LOCATION: {location}
-FARMER'S INTENDED CROP: {intended_crop}
+LOCATION: {location}
+INTENDED CROP: {intended_crop}
 
-REPORT FROM AGENT 1 — CROP RECOMMENDATION
-{crop_recommendation}
+CROP RECOMMENDATION:
+{shorten_report(crop_recommendation)}
 
-REPORT FROM AGENT 2 — SOIL HEALTH AND NUTRIENTS
-{soil_health_report}
+SOIL HEALTH:
+{shorten_report(soil_health_report)}
 
-REPORT FROM AGENT 3 — PEST AND PLANT DISEASE
-{pest_disease_report}
+PEST AND DISEASE:
+{shorten_report(pest_disease_report)}
 
-REPORT FROM AGENT 4 — WEATHER AND IRRIGATION
-{weather_irrigation_report}
+WEATHER AND IRRIGATION:
+{shorten_report(weather_irrigation_report)}
 
-ADDITIONAL AGRICULTURAL REFERENCE MATERIAL:
+AGRICULTURAL REFERENCES:
 {agricultural_context}
 
-Create a practical farm plan using these sections:
+Prepare a practical farm plan with these eight sections:
 
 1. FARM SITUATION
-Summarize available information and identify missing details.
+Summarize the farm conditions and missing information.
 
 2. BEFORE PLANTING
-List checks before purchasing seeds or preparing land.
+List important preparation checks.
 
 3. SOIL AND NUTRIENT MANAGEMENT
-Explain sensible next steps based on the soil report.
+Give practical soil improvement steps.
 
 4. CROP MONITORING
-Suggest practical ways to monitor crop health and pest symptoms.
+Explain how to monitor crop health and pests.
 
 5. WATER MANAGEMENT
-Explain what to check before deciding when to irrigate.
+Give safe irrigation guidance.
 
 6. KEY RISKS
-List risks, why they matter, and ways to reduce them.
+Identify major risks and prevention methods.
 
 7. ACTION CHECKLIST
-Provide a short, prioritized checklist.
+Give a prioritized checklist of farmer actions.
 
 8. LOCAL SUPPORT
-For Karnataka, recommend the local Raitha Samparka Kendra (RSK),
-Krishi Vigyan Kendra (KVK), or Agriculture Officer.
+Recommend Raitha Samparka Kendra, KVK,
+or the local Agriculture Officer in Karnataka.
 
-IMPORTANT RULES:
-- Use the four agent reports as the main farm-specific information.
-- Use relevant agricultural reference material when available.
-- Do not force unrelated reference information into the plan.
-- Do not invent weather forecasts, soil-test values, or market prices.
-- Do not guarantee crop yield or profit.
+RULES:
+- Use the four agent reports as the main information.
+- Use references only when relevant.
+- Do not invent weather, prices, soil test results or yields.
 - Do not prescribe unsupported fertilizer or pesticide quantities.
-- Clearly identify uncertainty and missing information.
-- Mention reference document names when relevant.
-- Recommend local agricultural expertise when necessary.
-- Use clear, practical language suitable for farmers.
+- Clearly mention uncertainty.
+- Use simple, practical language.
+- Keep the complete plan concise, around 700 words maximum.
 """
 
-    # Generate the combined farm plan
     response = generate_gemini_response(prompt)
 
-    if "quota is exhausted" in response.lower():
+    if not response or "temporarily unavailable" in response.lower():
         return (
-            "Gemini API quota is currently exhausted. "
-            "Please try again when quota becomes available."
+            "Farm planning could not be completed because the AI service "
+            "is temporarily unavailable. Please try again."
         )
 
     return response
-
-
-if __name__ == "__main__":
-    plan = create_farm_plan(
-        location="Karnataka, India",
-        intended_crop="Maize",
-        crop_recommendation="Maize is a possible crop for the supplied conditions.",
-        soil_health_report="Loamy soil with pH 6.5. Soil testing is recommended.",
-        pest_disease_report="Monitor yellow leaves and inspect plants for pests and disease.",
-        weather_irrigation_report="Moderate irrigation is available. Check local rainfall forecasts.",
-    )
-
-    print("\nFARM PLANNING AND RISK MANAGEMENT REPORT")
-    print("=" * 50)
-    print(plan)

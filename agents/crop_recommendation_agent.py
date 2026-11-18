@@ -4,92 +4,63 @@ import time
 from pathlib import Path
 
 from dotenv import load_dotenv
-from google import genai
+from groq import Groq
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
-API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY = os.getenv("GROQ_API_KEY")
 if not API_KEY:
-    raise ValueError("GEMINI_API_KEY not found in .env")
+    raise ValueError("GROQ_API_KEY not found in .env")
 
-client = genai.Client(
-    api_key=API_KEY,
-    http_options={"timeout": 30000},
-)
-MODEL_NAME = "gemini-3.8-flash"
+client = Groq(api_key=API_KEY)
+MODEL_NAME = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+
+def generate_groq_response(prompt: str) -> str:
+    for attempt in range(2):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert agricultural advisor. "
+                            "Give clear, practical and safe advice "
+                            "suitable for Indian farmers. "
+                            "Do not invent facts or guarantee crop yields."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            answer = response.choices[0].message.content
+            if answer:
+                return answer.strip()
+            return "The AI service returned an empty response. Please try again."
+        except Exception as error:
+            status_code = getattr(error, "status_code", None)
+            print(f"Groq error: {type(error).__name__}: {error}")
+            if status_code == 401:
+                return "Groq authentication failed. Please check your GROQ_API_KEY."
+            if status_code == 429:
+                return "Groq API rate limit reached. Please wait and try again."
+            if status_code in (500, 502, 503, 504) and attempt == 0:
+                print("Temporary Groq error. Retrying in 3 seconds...")
+                time.sleep(3)
+                continue
+            return "The AI service is temporarily unavailable. Please try again later."
+    return "Unable to generate an agricultural recommendation."
 
 
 def generate_gemini_response(prompt: str) -> str:
-    """
-    Shared Gemini request handler.
-    Handles quota exhaustion and temporary service errors.
-    """
-
-    max_attempts = 2
-
-    for attempt in range(max_attempts):
-        try:
-            print("Contacting Gemini...")
-
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=prompt,
-            )
-
-            if response.text:
-                return response.text
-
-            return "The AI service returned an empty response. Please try again."
-
-        except Exception as error:
-            error_message = str(error).lower()
-
-            quota_exhausted = (
-                "resource_exhausted" in error_message
-                or "quota exceeded" in error_message
-                or "daily limit" in error_message
-                or "per day" in error_message
-            )
-
-            if quota_exhausted:
-                print("Gemini daily quota exhausted.")
-
-                return (
-                    "Our AI agricultural advisory service has temporarily "
-                    "reached its daily usage limit. Your farm information "
-                    "and knowledge base are safe. Please try again after "
-                    "the API quota resets."
-                )
-
-            temporary_error = (
-                "503" in error_message
-                or "429" in error_message
-                or "500" in error_message
-                or "502" in error_message
-                or "service unavailable" in error_message
-            )
-
-            if temporary_error and attempt < max_attempts - 1:
-                print("Temporary Gemini error. Retrying once in 3 seconds...")
-                time.sleep(3)
-
-            elif temporary_error:
-                print(f"Gemini failed after retry: {error}")
-                return (
-                    "The AI service is temporarily unavailable. "
-                    "Please try again later."
-                )
-
-            else:
-                print(f"Gemini ERROR TYPE: {type(error).__name__}")
-                print(f"Gemini ERROR DETAILS: {error}")
-                return (
-                    "The AI service could not complete your request. "
-                    "Please try again later."
-                )
-
-    return "Unable to generate an agricultural recommendation."
+    return generate_groq_response(prompt)
 
 
 def recommend_crops(
@@ -121,4 +92,4 @@ def recommend_crops(
     Do not invent local weather conditions or guarantee crop yields.
     """
 
-    return generate_gemini_response(prompt)
+    return generate_groq_response(prompt)
